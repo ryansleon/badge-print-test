@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SignalR Frontend Example</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/3.1.16/signalr.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        #output { margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <h1>SignalR Frontend Example</h1>
+    <button id="printButton">Print Ticket</button>
+    <div id="output"></div>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            var connection = new signalR.HubConnectionBuilder()
+                .withUrl("http://localhost:60559/signalr")
+                .build();
+
+            var outputDiv = document.getElementById("output");
+
+            connection.start()
+                .then(function() {
+                    outputDiv.innerHTML += "<p>Connected to DeviceManagerHub</p>";
+                })
+                .catch(function(err) {
+                    outputDiv.innerHTML += "<p>Connection error: " + err.toString() + "</p>";
+                });
+
+            document.getElementById("printButton").addEventListener("click", function() {
+                var proxy = connection.createHubProxy('DeviceManagerHub');
+
+                proxy.invoke('ticketPrinter_Print', 1, 'TicketPrinter.Boca.Lemur', true)
+                    .then(function() {
+                        outputDiv.innerHTML += "<p>Print command sent</p>";
+                    })
+                    .catch(function(err) {
+                        outputDiv.innerHTML += "<p>Error sending print command: " + err.toString() + "</p>";
+                    });
+            });
+
+            proxy.on('onTicketPrinterPrinted_Event', function(event) {
+                var { Idx, ComponentModelName, Payload } = event;
+                if (Payload) {
+                    var { Printed, OutOfPaper } = Payload;
+                    if (Printed) {
+                        outputDiv.innerHTML += "<p>The ticket was printed successfully.</p>";
+                    } else if (OutOfPaper) {
+                        outputDiv.innerHTML += "<p>The printer is out of paper.</p>";
+                    }
+                } else {
+                    outputDiv.innerHTML += "<p>Printer is not loaded with ticket stock or a communication error occurred.</p>";
+                }
+            });
+
+            connection.onclose(async () => {
+                outputDiv.innerHTML += "<p>Connection lost. Reconnecting...</p>";
+                await start();
+            });
+
+            async function start() {
+                try {
+                    await connection.start();
+                    outputDiv.innerHTML += "<p>Reconnected to DeviceManagerHub</p>";
+                } catch (err) {
+                    outputDiv.innerHTML += "<p>Reconnection error: " + err.toString() + "</p>";
+                    setTimeout(() => start(), 5000);
+                }
+            }
+        });
+    </script>
+</body>
+</html>
