@@ -1,77 +1,182 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SignalR Frontend Example</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/3.1.16/signalr.min.js"></script>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        #output { margin-top: 20px; }
-    </style>
-</head>
-<body>
-    <h1>SignalR Frontend Example</h1>
-    <button id="printButton">Print Ticket</button>
-    <div id="output"></div>
+<html>
+	<head>
+		<!--jQuery library. -->
+		<script src="Scripts/jquery-1.6.4.min.js"></script>
+		<!--SignalR library. -->
+		<script src="Scripts/jquery.signalR-2.0.3.min.js"></script>
+		<!--Underscore library.-->
+		<script src="Scripts/Underscore.js"></script>
+	</head>
+	<body>
+		<div id="topEle">
+			<h2>Device Manager</h2>
+			<h3>Ticket Printer Gen2 Example</h3>
+			<p>
+				<div>Step 1: Call 'TicketPrinter_SetDelayedACK'. This only needs to be called once on the printer to change it's internal setting. If this was already called on this printer, then skip to step 2.</div>
+				<input type="button" id="setDelayedACKBtn" value="Set Delayed ACK" />
+			</p>
+			<p>
+				<div>Step 2: Call 'TicketPrinter_GetLowPaperStatus' then Wait for the LowPaper event</div>
+				<input type="button" id="lowPaperStatusBtn" value="Low Paper Status" />
+			</p>
+			<p>
+				<div>Step 3a: Call 'TicketPrinter_Print' (with no cut option)</div>
+				<input type="button" id="ticketPrinterNoCutBtn" value="Print (no cut)" />
+			</p>
+			<p>
+				<div>Step 3b: Call 'TicketPrinter_Print' (with cut option)</div>
+				<input type="button" id="ticketPrinterCutBtn" value="Print (with cut)" />
+			</p>
+		</div>
+		<script>
+			var devMgrConnStr = "http://localhost:60559/signalr"; // Device Manager URL
+		
+			var ticketIdx = 0;			// The index of the component
+			var ticketDevInterface = '';	// The interface name of the component
+			
+			// Create the SignalR connection object
+			var conn = $.hubConnection(devMgrConnStr);
+			
+			/*
+			
+				SignalR connection lifecycle callbacks:
+				
+				- If the SignalR connection is dropped, the reconnecting event handler will fire periodically.
+				- If the connection is obtained again within 30 seconds, the 'reconnected' event handler will fire.
+				- If the connection stays in 'reconnecting' mode for more than 30 seconds, the disconnected event handler will fire.
+				- If the connection can't be obtained in 'disconnected' mode, the disconnected event handler will fire again.
+			
+			*/
+			
+			// Create a 'reconnecting' event handler
+			conn.reconnecting(function() {
+				console.log('attempting to reconnect');
+			});
+			
+			// Create a 'reconnected' event handler
+			conn.reconnected(function() {
+				console.log('reconnected');
+			});
+			
+			// Create a 'disconnected' event handler
+			conn.disconnected(function() {
+				console.error('disconnected');
+				
+				setTimeout(function(){
+					// Attempt to re-establish the connection
+					conn.start().done(function() {
+						console.log('Connected');
+					}).fail(function(err) {
+						console.error(JSON.stringify(err));
+					});
+				}, 5000);
+			});
+			
+			// Create a hub proxy object. This is the object where DeviceManager methods are called and events are received.
+			var proxy = conn.createHubProxy('deviceManagerHub');
+			
+			// If we want to receive events prior to making method calls, then we must register an event before connection.start() is called.
+			// Register a dummy event called: '_a'
+			proxy.on('_a', function() {});
+			
+			// Start the initial connection here
+			conn.start().done(function() {
+				
+				// Get all of the device components
+				proxy.invoke('GetAllComponents').done(function(comps){
+					
+					console.log(comps);
+					
+					// Find all active ticket printer components
+					var accItems = _.filter(comps, function(c) {
+						return c.ComponentTypeName === "Ticket_Printer_Gen2" && c.IsActive;
+					});
+					accItems = accItems || [];	// Do an 'OR' operation to assign an empty array if no components were found.
+					
+					if(accItems.length > 0)
+					{
+						// Use the first ticket printer component.
+						var ticketPrnItem = accItems[0];
+						ticketIdx = ticketPrnItem.CompIdx;
+						ticketDevInterface = ticketPrnItem.DeviceManagerInterface;
+						
+						// This is the recommended approach to obtaining the idx and interface variables. Setting these manually will
+						// require a code change; but this approach is dynamic.
+						
+						defineEvents();
+					}
+					else
+					{
+						console.error("A ticket printer component wasn't found in the configuration.");
+					}
+					
+				}).fail(function(err) {
+					console.error(JSON.stringify(err));
+				});
+				
+			}).fail(function(err) {
+				console.error(JSON.stringify(err));
+			});
+			
+			$('#setDelayedACKBtn').click(function(){
+				proxy.invoke('TicketPrinter_SetDelayedACK', ticketIdx, ticketDevInterface).done(function () {
+			        
+			    }).fail(function (err) {
+			        console.error(JSON.stringify(err));
+			    });
+			});
+			
+			$('#lowPaperStatusBtn').click(function(){
+				proxy.invoke('TicketPrinter_GetLowPaperStatus', ticketIdx, ticketDevInterface).done(function () {
+			        
+			    }).fail(function (err) {
+			        console.error(JSON.stringify(err));
+			    });
+			});
+			
+			$('#ticketPrinterNoCutBtn').click(function(){
+				proxy.invoke('TicketPrinter_Print', ticketIdx, ticketDevInterface, "<HW1,1><RC5,5>Test", false).done(function () {
+			        
+			    }).fail(function (err) {
+			        console.error(JSON.stringify(err));
+			    });
+			});
+			
+			$('#ticketPrinterCutBtn').click(function(){
+				proxy.invoke('TicketPrinter_Print', ticketIdx, ticketDevInterface, "<HW1,1><RC5,5>Test", true).done(function () {
+			        
+			    }).fail(function (err) {
+			        console.error(JSON.stringify(err));
+			    });
+			});
+			
+			function defineEvents() {
+				
+				// Detach the event handlers. This is done here because if defineEvents() is called again, then these events won't be registered multiple times and cause duplicate event firings.
+				proxy.off('onTicketPrinterSetDelayedACK_Event');
+				proxy.off('onTicketPrinterGetStatus_Event');
+				proxy.off('onTicketPrinterPrinted_Event');
+				
+				// Attach the event handlers
+				proxy.on('onTicketPrinterSetDelayedACK_Event', function (evt) {
+					console.log('Delayed ACK Set');
+					console.log(evt.Payload);
+				});
+				
+				proxy.on('onTicketPrinterGetStatus_Event', function (evt) {
+					console.log('Low Paper Status');
+					console.log(JSON.stringify(evt));
+				});
 
-    <script>
-        document.addEventListener("DOMContentLoaded", function() {
-            var connection = new signalR.HubConnectionBuilder()
-                .withUrl("http://localhost:60559/signalr")
-                .build();
-
-            var outputDiv = document.getElementById("output");
-
-            connection.start()
-                .then(function() {
-                    outputDiv.innerHTML += "<p>Connected to DeviceManagerHub</p>";
-                })
-                .catch(function(err) {
-                    outputDiv.innerHTML += "<p>Connection error: " + err.toString() + "</p>";
-                });
-
-            document.getElementById("printButton").addEventListener("click", function() {
-                var proxy = connection.createHubProxy('DeviceManagerHub');
-
-                proxy.invoke('ticketPrinter_Print', 1, 'TicketPrinter.Boca.Lemur', true)
-                    .then(function() {
-                        outputDiv.innerHTML += "<p>Print command sent</p>";
-                    })
-                    .catch(function(err) {
-                        outputDiv.innerHTML += "<p>Error sending print command: " + err.toString() + "</p>";
-                    });
-            });
-
-            proxy.on('onTicketPrinterPrinted_Event', function(event) {
-                var { Idx, ComponentModelName, Payload } = event;
-                if (Payload) {
-                    var { Printed, OutOfPaper } = Payload;
-                    if (Printed) {
-                        outputDiv.innerHTML += "<p>The ticket was printed successfully.</p>";
-                    } else if (OutOfPaper) {
-                        outputDiv.innerHTML += "<p>The printer is out of paper.</p>";
-                    }
-                } else {
-                    outputDiv.innerHTML += "<p>Printer is not loaded with ticket stock or a communication error occurred.</p>";
-                }
-            });
-
-            connection.onclose(async () => {
-                outputDiv.innerHTML += "<p>Connection lost. Reconnecting...</p>";
-                await start();
-            });
-
-            async function start() {
-                try {
-                    await connection.start();
-                    outputDiv.innerHTML += "<p>Reconnected to DeviceManagerHub</p>";
-                } catch (err) {
-                    outputDiv.innerHTML += "<p>Reconnection error: " + err.toString() + "</p>";
-                    setTimeout(() => start(), 5000);
-                }
-            }
-        });
-    </script>
-</body>
+				proxy.on('onTicketPrinterPrinted_Event', function (evt) {
+					console.log('Print');
+					console.log(evt.Payload);
+				});
+				
+				
+			}
+			
+		</script>
+	</body>
 </html>
